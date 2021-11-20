@@ -30,15 +30,19 @@ int setup_wavetable() {
 	int i;
 	wave_length = (60 * sr / bpm) / 2;
 	wave = (sample_t *) malloc (wave_length * sizeof(sample_t));
+
 	for (i = 0; i < 5; i++) {
 		wave[i] = 0.02;
 	}
+
 	for (i = 5; i < 200; i++) {
 		wave[i] = 0.95;
 	}
+
 	for (i = 200; i < 400; i++) {
-		wave[i] = -0.01 + (i / 1000);
+		wave[i] = -0.01 + ((float)i / 1000);
 	}
+
 	for (i = 400; i < (int)wave_length; i++) {
 		wave[i] = 0.001;
 	}
@@ -88,7 +92,8 @@ static int process (jack_nframes_t nframes, void *arg) {
 	jack_transport_state_t state
 		= jack_transport_query(client, &pos);
 	bpm = pos.beats_per_minute;
-	printf("bbt offset: %i\n", pos.bbt_offset);
+	printf("state: %i\n", state);
+
 	if (bpm != last_bpm) {
 		last_bpm = bpm;
 		setup_wavetable();
@@ -107,14 +112,6 @@ static int process (jack_nframes_t nframes, void *arg) {
 }
 
 jack_transport_state_t prev_sync_state = JackTransportStopped;
-
-int sync_callback(jack_transport_state_t state, jack_position_t *pos, void *arg) {
-	if (state != prev_sync_state) {
-	}
-
-	printf("bbt offset: %i\n", pos->bbt_offset);
-	return 0;
-}
 
 int main (int argc, char *argv[]) {
 	int option_index;
@@ -148,16 +145,15 @@ int main (int argc, char *argv[]) {
 		fprintf (stderr, "JACK server not running?\n");
 		return 1;
 	}
-	jack_set_process_callback (client, process, 0);
-	jack_set_sync_callback(client, sync_callback, 0);
+	jack_set_process_callback(client, process, 0);
 
 	analog_port = jack_port_register (client, "2ppqn", JACK_DEFAULT_AUDIO_TYPE, JackPortIsOutput, 0);
 	midi_port = jack_port_register (client, "midi", JACK_DEFAULT_MIDI_TYPE, JackPortIsOutput, 0);
 
-	sr = jack_get_sample_rate (client);
+	sr = jack_get_sample_rate(client);
 	setup_wavetable();
 
-	if (jack_activate (client)) {
+	if (jack_activate(client)) {
 		fprintf (stderr, "cannot activate client\n");
 		goto error;
 	}
