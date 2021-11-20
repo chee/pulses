@@ -15,15 +15,17 @@ typedef jack_default_audio_sample_t sample_t;
 
 jack_client_t *client;
 jack_port_t *analog_port;
+jack_port_t *midi_port;
 unsigned long sr;
 double last_bpm = 120;
 double bpm = 120;
 jack_nframes_t tone_length, wave_length;
 sample_t *wave;
 long offset = 0;
-int transport_aware = 1;
+bool transport_aware = true;
 jack_transport_state_t transport_state;
 bool playing = false;
+bool wait_for_beat_1 = false;
 
 int setup_wavetable()
 {
@@ -82,6 +84,7 @@ static void process_audio (jack_nframes_t nframes) {
 		memcpy (buffer + (nframes - frames_left), wave + offset, sizeof (sample_t) * (wave_length - offset));
 		frames_left -= wave_length - offset;
 		offset = 0;
+		// maybe I can send the midi clock here?
 	}
 	if (frames_left > 0) {
 		memcpy (buffer + (nframes - frames_left), wave + offset, sizeof (sample_t) * frames_left);
@@ -91,36 +94,61 @@ static void process_audio (jack_nframes_t nframes) {
 
 jack_transport_state_t last_state = 0;
 
+uint32_t pulsetick = 0;
+
 static int process (jack_nframes_t nframes, void *arg) {
 	jack_position_t pos;
 	jack_transport_state_t state
 		= jack_transport_query(client, &pos);
 	bpm = pos.beats_per_minute;
+    	void* midi_port_buffer = jack_port_get_buffer(midi_port, nframes);
+	unsigned char* midi_buffer;
+	jack_midi_clear_buffer(midi_port_buffer);
 
 	if (bpm != last_bpm) {
 		last_bpm = bpm;
 		setup_wavetable();
 	}
+	
+	if (playing && offset == 0 && pulsetick % 2) {
+          if ((midi_buffer = jack_midi_event_reserve(midi_port_buffer, 0, 1))) {
+			midi_buffer[0] = 0xf8;
+		}
+	}
 
 	if (transport_aware) {
-		if (state == JackTransportRolling && playing) {
+		bool waiting = wait_for_beat_1 && pos.beat != 1;
+		if (state == JackTransportRolling && playing)
+		{
 			process_audio(nframes);
-		} else if (state == JackTransportRolling && pos.beat == 1) {
+		}
+		else if (state == JackTransportRolling && !waiting)
+		{
 			playing = true;
 			process_audio(nframes);
-		} else {
+		}
+		else
+		{
 			playing = false;
 			process_silence(nframes);
 		}
 		if (state == last_state) {
-			offset = pos.frame % wave_length;
-		} else {
+			//offset = pos.frame % wave_length;
+		} else if (state == JackTransportStarting) {
+			if ((midi_buffer = jack_midi_event_reserve(midi_port_buffer, 0, 1))) {
+				midi_buffer[0] = 0xfa;
+			}
 			offset = 0;
+		} else if (state == JackTransportStopped) {
+			if ((midi_buffer = jack_midi_event_reserve(midi_port_buffer, 0, 1))) {
+				midi_buffer[0] = 0xfc;
+			}
 		}
 	} else {
 		process_audio(nframes);
 	}
 	last_state = state;
+	pulsetick += 1;
 	return 0;
 }
 
@@ -134,18 +162,22 @@ int main (int argc, char *argv[]) {
 	int verbose = 0;
 	jack_status_t status;
 
-	const char *options = "th";
+	const char *options = "wth";
 	struct option long_options[] =
 	{
-		{"transport", 0, 0, 't'},
+		{"wait", 0, 0, 'w'},
+		{"ignore-transport", 0, 0, 't'},
 		{"help", 0, 0, 'h'},
 		{0, 0, 0, 0}
 	};
 
 	while ((opt = getopt_long (argc, argv, options, long_options, &option_index)) != -1) {
 		switch (opt) {
+		case 'w':
+			wait_for_beat_1 = true;
+			break;
 		case 't':
-			transport_aware = 0;
+			transport_aware = false;
 			break;
 		default:
 			fprintf (stderr, "unknown option %c\n", opt);
@@ -161,6 +193,7 @@ int main (int argc, char *argv[]) {
 	jack_set_process_callback(client, process, 0);
 
 	analog_port = jack_port_register (client, "2ppqn", JACK_DEFAULT_AUDIO_TYPE, JackPortIsOutput, 0);
+	midi_port = jack_port_register (client, "midi", JACK_DEFAULT_MIDI_TYPE, JackPortIsOutput, 0);
 
 	sr = jack_get_sample_rate(client);
 	setup_wavetable();
