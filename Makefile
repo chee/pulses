@@ -19,12 +19,12 @@ CCFLAGS += -Wno-multichar
 
 LDFLAGS += -ljack -lpthread
 
-SOURCES  = pulses.cc
+SOURCES  = pulses.c
 
 all:	$(TARGET)
 
 $(TARGET):	$(SOURCES)
-	g++ $(CCFLAGS) -o $(TARGET) $(SOURCES) $(LDFLAGS)
+	gcc $(CFLAGS) -o $(TARGET) $(SOURCES) $(LDFLAGS)
 
 install:	$(TARGET)
 	install -d $(DESTDIR)$(BINDIR)

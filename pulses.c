@@ -8,13 +8,15 @@
 #include <unistd.h>
 #include <jack/jack.h>
 #include <jack/transport.h>
+#include <jack/midiport.h>
 
 typedef jack_default_audio_sample_t sample_t;
 
 const double PI = 3.14;
 
 jack_client_t *client;
-jack_port_t *output_port;
+jack_port_t *analog_port;
+jack_port_t *midi_port;
 unsigned long sr;
 double last_bpm = 120;
 double bpm = 120;
@@ -29,7 +31,7 @@ int setup_wavetable() {
 	wave_length = (60 * sr / bpm) / 2;
 	wave = (sample_t *) malloc (wave_length * sizeof(sample_t));
 	for (i = 0; i < 5; i++) {
-		wave[i] = 0;
+		wave[i] = 0.02;
 	}
 	for (i = 5; i < 200; i++) {
 		wave[i] = 0.95;
@@ -45,35 +47,26 @@ int setup_wavetable() {
 }
 
 
-static void signal_handler(int sig)
-{
+static void signal_handler(int sig) {
 	jack_client_close(client);
-	fprintf(stderr, "signal received, exiting ...\n");
+	fprintf(stderr, "signal received (%i), exiting ...\n", sig);
 	exit(0);
 }
 
-static void
-usage ()
-{
-	fprintf (stderr, "\n"
-"usage: pulses \n"
-);
+static void usage () {
+	fprintf (stderr, "\nusage: pulses \n");
 }
 
-static void
-process_silence (jack_nframes_t nframes)
-{
-	sample_t *buffer = (sample_t *) jack_port_get_buffer (output_port, nframes);
+static void process_silence (jack_nframes_t nframes) {
+	sample_t *buffer = (sample_t *) jack_port_get_buffer (analog_port, nframes);
 	memset (buffer, 0, sizeof (jack_default_audio_sample_t) * nframes);
 }
 
 jack_nframes_t last_time;
 jack_time_t last_micro_time;
 
-static void
-process_audio (jack_nframes_t nframes)
-{
-	sample_t *buffer = (sample_t *) jack_port_get_buffer (output_port, nframes);
+static void process_audio (jack_nframes_t nframes) {
+	sample_t *buffer = (sample_t *) jack_port_get_buffer (analog_port, nframes);
 	jack_nframes_t frames_left = nframes;
 
 	while (wave_length - offset < frames_left) {
@@ -87,35 +80,43 @@ process_audio (jack_nframes_t nframes)
 	}
 }
 
-static int
-process (jack_nframes_t nframes, void *arg)
-{
+static int process (jack_nframes_t nframes, void *arg) {
+	void* midi_port_buffer = jack_port_get_buffer(midi_port, nframes);
+	unsigned char* buffer;
+	jack_midi_clear_buffer(midi_port_buffer);
 	jack_position_t pos;
 	jack_transport_state_t state
-		= ::jack_transport_query(client, &pos);
+		= jack_transport_query(client, &pos);
 	bpm = pos.beats_per_minute;
+	printf("bbt offset: %i\n", pos.bbt_offset);
 	if (bpm != last_bpm) {
 		last_bpm = bpm;
 		setup_wavetable();
 	}
-	if (transport_aware) {
-		if (state
-			 != JackTransportRolling) {
 
+	if (transport_aware) {
+		if (state != JackTransportRolling) {
 			process_silence (nframes);
 			return 0;
 		}
 		offset = pos.frame % wave_length;
 	}
+
 	process_audio (nframes);
 	return 0;
 }
 
+jack_transport_state_t prev_sync_state = JackTransportStopped;
 
-int
-main (int argc, char *argv[])
-{
+int sync_callback(jack_transport_state_t state, jack_position_t *pos, void *arg) {
+	if (state != prev_sync_state) {
+	}
 
+	printf("bbt offset: %i\n", pos->bbt_offset);
+	return 0;
+}
+
+int main (int argc, char *argv[]) {
 	int option_index;
 	int opt;
 
@@ -131,10 +132,6 @@ main (int argc, char *argv[])
 		{0, 0, 0, 0}
 	};
 
-
-
-
-
 	while ((opt = getopt_long (argc, argv, options, long_options, &option_index)) != -1) {
 		switch (opt) {
 		case 't':
@@ -147,17 +144,15 @@ main (int argc, char *argv[])
 		}
 	}
 
-	/* Initial Jack setup, get sample rate */
-	if (!client_name) {
-		client_name = (char *) malloc (9 * sizeof (char));
-		strcpy (client_name, "pulses");
-	}
-	if ((client = jack_client_open (client_name, JackNoStartServer, &status)) == 0) {
+	if ((client = jack_client_open ("pulses", JackNoStartServer, &status)) == 0) {
 		fprintf (stderr, "JACK server not running?\n");
 		return 1;
 	}
 	jack_set_process_callback (client, process, 0);
-	output_port = jack_port_register (client, "2ppqn", JACK_DEFAULT_AUDIO_TYPE, JackPortIsOutput, 0);
+	jack_set_sync_callback(client, sync_callback, 0);
+
+	analog_port = jack_port_register (client, "2ppqn", JACK_DEFAULT_AUDIO_TYPE, JackPortIsOutput, 0);
+	midi_port = jack_port_register (client, "midi", JACK_DEFAULT_MIDI_TYPE, JackPortIsOutput, 0);
 
 	sr = jack_get_sample_rate (client);
 	setup_wavetable();
