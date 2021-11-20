@@ -12,3 +12,9 @@ argument
 
 most of the code is ripped off from jack_metro but the wave is hand-crafted and
 it gets the bpm from the transport
+
+*T*O*D*O*
+  • add more outputs at different ppqn
+  • it probably needs to skip back to 0 when the transport resets because i bet
+	 right now it will not do the click right when you press play if you paused
+	 in between clicks
