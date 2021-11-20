@@ -24,7 +24,7 @@ SOURCES  = pulses.c
 all:	$(TARGET)
 
 $(TARGET):	$(SOURCES)
-	gcc $(CFLAGS) -o $(TARGET) $(SOURCES) $(LDFLAGS)
+	clang $(CFLAGS) -o $(TARGET) $(SOURCES) $(LDFLAGS)
 
 install:	$(TARGET)
 	install -d $(DESTDIR)$(BINDIR)
