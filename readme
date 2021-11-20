@@ -1,0 +1,14 @@
+pulses - jack analog sync
+
+	git clone https://git.snoot.club/chee/pulses
+	cd pulses
+	make
+	./pulses
+
+then connect pulses:2ppqn to the input of your po, starfish or volca
+
+if you want the clock to play even if the transport is not active pass the -t
+argument
+
+most of the code is ripped off from jack_metro but the wave is hand-crafted and
+it gets the bpm from the transport
