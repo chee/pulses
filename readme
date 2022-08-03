@@ -1,6 +1,6 @@
 pulses - jack analog sync
 
-   git clone https://git.snoot.club/chee/pulses
+   git clone https://github.com/chee/pulses
    cd pulses
    make
    ./pulses
